@@ -3,6 +3,23 @@ return function MemePanel({ settings, save, toast }) {
   const [data, setData] = useState(null), [query, setQuery] = useState(''), [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null), [preview, setPreview] = useState(null), [busy, setBusy] = useState(false), [alias, setAlias] = useState(''), [favoritesOnly, setFavoritesOnly] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [rest, setRest] = useState(null), [restBase, setRestBase] = useState(null), [restGroups, setRestGroups] = useState(''), [restZone, setRestZone] = useState(''), [restSaving, setRestSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    call('/rest').then(r => { if (active) { setRest(r.rest); setRestBase(r.rest); setRestGroups(r.rest.groups.join('\n')); setRestZone(r.timeZone); } }).catch(() => { if (active) toast('休息设置暂时读不到，请重新打开此页。'); });
+    return () => { active = false; };
+  }, []);
+  const saveRest = async () => {
+    setRestSaving(true);
+    try {
+      const groups = restGroups.trim().split(/[\s,，;；]+/).filter(Boolean);
+      const r = await call('/rest', { rest: { ...rest, groups }, expected: restBase });
+      if (!r.ok) { toast(r.message || '休息设置未保存，请稍后重试。'); return; }
+      setRest(r.rest); setRestBase(r.rest); setRestGroups(r.rest.groups.join('\n'));
+      toast('休息设置已保存');
+    } catch (e) { toast(e instanceof TypeError ? '休息设置保存未确认，请重新打开此页核对。' : e.message || '休息设置保存未确认，请重新打开此页核对。'); }
+    finally { setRestSaving(false); }
+  };
   const previewRequest = useRef(0);
   useEffect(() => () => { previewRequest.current++; }, []);
   useEffect(() => { call('/library').then(setData).catch(e => toast(e.message)); }, []);
@@ -81,6 +98,15 @@ return function MemePanel({ settings, save, toast }) {
     catch (e) { if(request === previewRequest.current) toast(e.message); } finally { if(request === previewRequest.current) setBusy(false); }
   };
   return h('div', null,
+    h(ui.Card, { title: '指定群：表情休息时段' },
+      h('p', { className: 'ab-muted ab-small' }, '休息期间不回复群内表情指令；私聊和其他群不受影响。与聊天的静默时段独立。'),
+      rest ? h('div', null,
+        h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 } }, h('input', { type: 'checkbox', checked: rest.enabled, disabled: restSaving, onChange: e => setRest({ ...rest, enabled: e.target.checked }) }), '启用休息时段'),
+        h('label', { style: { display: 'block', marginBottom: 12 } }, '哪些群需要休息', h('textarea', { className: 'ab-input', 'aria-label': '休息群号', placeholder: '一行一个群号；留空不影响任何群', value: restGroups, disabled: restSaving, onChange: e => setRestGroups(e.target.value), rows: 3, style: { display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 6 } })),
+        h('div', { style: { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 } },
+          ...[['start', '开始休息'], ['end', '恢复使用']].map(([key, label]) => h('label', { key }, label, h('input', { className: 'ab-input', 'aria-label': label, type: 'time', value: rest[key], disabled: restSaving, onChange: e => setRest({ ...rest, [key]: e.target.value }), style: { display: 'block', width: 140, marginTop: 6 } })))),
+        h('p', { className: 'ab-muted ab-small' }, `每天按运行机器的时间（${restZone || '本机时区'}）执行，可跨午夜。到结束时间自动恢复，重启后也有效。`),
+        h(ui.Btn, { disabled: restSaving, onClick: saveRest }, restSaving ? '正在保存…' : '保存休息设置')) : h('p', null, '正在读取休息设置…')),
     h(ui.Card, { title: '表情库' },
       h('p', { className: 'ab-note', 'aria-live': 'polite' }, data ? (data.installation?.busy ? data.installation.message : data.error ? '表情库暂时不可用' : `${data.total} 个模板`) : '正在加载…'),
       data?.installation?.busy && h('div', { style:{marginBottom:16} },
